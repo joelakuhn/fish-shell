@@ -3367,69 +3367,95 @@ impl<'a> Reader<'a> {
                     self.update_command_line_from_history_search();
                 }
             }
-            rl::UpLine | rl::DownLine => {
-                if self.is_navigating_pager_contents() {
-                    // We are already navigating pager contents.
-                    let direction = if c == rl::DownLine {
-                        // Down arrow is always south.
-                        SelectionMotion::South
-                    } else if self.selection_is_at_top() {
-                        // Up arrow, but we are in the first column and first row. End navigation.
-                        SelectionMotion::Deselect
-                    } else {
-                        // Up arrow, go north.
-                        SelectionMotion::North
-                    };
-
-                    // Now do the selection.
-                    self.select_completion_in_direction(direction, false);
-                } else if !self.pager.is_empty() {
-                    // We pressed a direction with a non-empty pager, begin navigation.
-                    self.select_completion_in_direction(
-                        if c == rl::DownLine {
-                            SelectionMotion::South
-                        } else {
-                            SelectionMotion::North
-                        },
-                        false,
-                    );
-                } else {
-                    // Not navigating the pager contents.
+            rl::UpLine | rl::DownLine | rl::UpVisualLine | rl::DownVisualLine => {
+                let mut visual_movement_handled = false;
+                if c == rl::UpVisualLine || c == rl::DownVisualLine {
                     let (elt, el) = self.active_edit_line();
-                    let line_old =
-                        i32::try_from(parse_util_get_line_from_offset(el.text(), el.position()))
-                            .unwrap();
-
-                    let line_new = if c == rl::UpLine {
-                        line_old - 1
-                    } else {
-                        line_old + 1
+                    let width = termsize_last().width;
+                    let offset = if c == rl::DownVisualLine {
+                        width
+                    }
+                    else {
+                        -width
                     };
+                    let buf_pos_new = el.position() as isize + offset;
+                    
+                    if buf_pos_new < el.len() as isize && buf_pos_new >= 0 {
+                        let buf_pos_new = buf_pos_new as usize;
+                        let buf_pos_old = el.position();
+                        let lower_pos = std::cmp::min(buf_pos_new, buf_pos_old);
+                        let higher_pos = std::cmp::max(buf_pos_new, buf_pos_old);
+                        if !(lower_pos..higher_pos).any(|f| el.at(f) == '\n') {
+                            self.update_buff_pos(elt, Some(buf_pos_new));
+                            visual_movement_handled = true;
+                        }
+                    }
+                }
 
-                    let line_count = parse_util_lineno(el.text(), el.len()) - 1;
+                if !visual_movement_handled {
+                    if self.is_navigating_pager_contents() {
+                        // We are already navigating pager contents.
+                        let direction = if c == rl::DownLine || c == rl::DownVisualLine {
+                            // Down arrow is always south.
+                            SelectionMotion::South
+                        } else if self.selection_is_at_top() {
+                            // Up arrow, but we are in the first column and first row. End navigation.
+                            SelectionMotion::Deselect
+                        } else {
+                            // Up arrow, go north.
+                            SelectionMotion::North
+                        };
 
-                    if (0..=i32::try_from(line_count).unwrap()).contains(&line_new) {
-                        let indents = parse_util_compute_indents(el.text());
-                        let base_pos_new =
-                            parse_util_get_offset_from_line(el.text(), line_new).unwrap();
-                        let base_pos_old =
-                            parse_util_get_offset_from_line(el.text(), line_old).unwrap();
-
-                        let indent_old = indents[std::cmp::min(indents.len() - 1, base_pos_old)];
-                        let indent_new = indents[std::cmp::min(indents.len() - 1, base_pos_new)];
-                        let indent_old = isize::try_from(indent_old).unwrap();
-                        let indent_new = isize::try_from(indent_new).unwrap();
-
-                        let line_offset_old =
-                            isize::try_from(el.position() - base_pos_old).unwrap();
-                        let total_offset_new = parse_util_get_offset(
-                            el.text(),
-                            line_new,
-                            line_offset_old
-                                - isize::try_from(SPACES_PER_INDENT).unwrap()
-                                    * (indent_new - indent_old),
+                        // Now do the selection.
+                        self.select_completion_in_direction(direction, false);
+                    } else if !self.pager.is_empty() {
+                        // We pressed a direction with a non-empty pager, begin navigation.
+                        self.select_completion_in_direction(
+                            if c == rl::DownLine || c == rl::DownVisualLine {
+                                SelectionMotion::South
+                            } else {
+                                SelectionMotion::North
+                            },
+                            false,
                         );
-                        self.update_buff_pos(elt, total_offset_new);
+                    } else {
+                        // Not navigating the pager contents.
+                        let (elt, el) = self.active_edit_line();
+                        let line_old =
+                            i32::try_from(parse_util_get_line_from_offset(el.text(), el.position()))
+                                .unwrap();
+
+                        let line_new = if c == rl::UpLine || c == rl::UpVisualLine {
+                            line_old - 1
+                        } else {
+                            line_old + 1
+                        };
+
+                        let line_count = parse_util_lineno(el.text(), el.len()) - 1;
+
+                        if (0..=i32::try_from(line_count).unwrap()).contains(&line_new) {
+                            let indents = parse_util_compute_indents(el.text());
+                            let base_pos_new =
+                                parse_util_get_offset_from_line(el.text(), line_new).unwrap();
+                            let base_pos_old =
+                                parse_util_get_offset_from_line(el.text(), line_old).unwrap();
+
+                            let indent_old = indents[std::cmp::min(indents.len() - 1, base_pos_old)];
+                            let indent_new = indents[std::cmp::min(indents.len() - 1, base_pos_new)];
+                            let indent_old = isize::try_from(indent_old).unwrap();
+                            let indent_new = isize::try_from(indent_new).unwrap();
+
+                            let line_offset_old =
+                                isize::try_from(el.position() - base_pos_old).unwrap();
+                            let total_offset_new = parse_util_get_offset(
+                                el.text(),
+                                line_new,
+                                line_offset_old
+                                    - isize::try_from(SPACES_PER_INDENT).unwrap()
+                                        * (indent_new - indent_old),
+                            );
+                            self.update_buff_pos(elt, total_offset_new);
+                        }
                     }
                 }
             }

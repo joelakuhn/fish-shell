@@ -96,7 +96,9 @@ function fish_vi_key_bindings --description 'vi-like key bindings for fish'
     bind -s --preset -m insert / history-pager repaint-mode
 
     bind -s --preset k up-or-search
+    bind -s --preset g,k up-visual-line
     bind -s --preset j down-or-search
+    bind -s --preset g,k down-visual-line
     bind -s --preset b backward-word
     bind -s --preset B backward-bigword
     bind -s --preset g,e backward-word
